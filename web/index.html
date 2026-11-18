@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="referrer" content="no-referrer" />
+    <meta name="color-scheme" content="light dark" />
+    <title>Sayso</title>
+    <!-- Language, direction and theme before the first paint, as src/ui/prefs.ts decides them. -->
+    <script>
+      ;(function () {
+        var root = document.documentElement
+        var get = function (key) {
+          try { return localStorage.getItem(key) } catch (e) { return null }
+        }
+        var locale = get('sayso.locale') || ((navigator.languages || [navigator.language]).some(function (l) { return /^fa\b/i.test(l) }) ? 'fa' : 'en')
+        root.lang = locale
+        root.dir = locale === 'fa' ? 'rtl' : 'ltr'
+        var theme = get('sayso.theme')
+        if (theme === 'light' || theme === 'dark') root.dataset.theme = theme
+      })()
+    </script>
+  </head>
+  <body>
+    <div id="app"><main class="screen"><p id="boot-note" class="muted"></p></main></div>
+    <!-- Before any script arrives: if the connection stalls (some networks
+         freeze one for a minute), say so instead of showing nothing. -->
+    <script>
+      ;(function () {
+        var fa = document.documentElement.lang === 'fa'
+        var note = document.getElementById('boot-note')
+        note.textContent = fa ? 'در حال بارگذاری…' : 'Loading…'
+        setTimeout(function () {
+          var still = document.getElementById('boot-note')
+          if (!still) return
+          still.textContent = fa
+            ? 'هنوز در حال بارگذاری است: به نظر می‌رسد اتصال گیر کرده. بارگذاری دوباره معمولاً درستش می‌کند. '
+            : 'Still loading: the connection seems to be stuck. Reloading usually gets past it. '
+          var button = document.createElement('button')
+          button.textContent = fa ? 'بارگذاری دوباره' : 'Reload'
+          button.onclick = function () { location.reload() }
+          still.appendChild(button)
+        }, 10000)
+      })()
+    </script>
+    <!-- Filled in by the deploy workflow (scripts/inline-data.mjs): the site's
+         configuration and the owner's signed owner.json, so the page needs no
+         request of its own before it can show who it delivers to. -->
+    <script id="sayso-data" type="application/json">{}</script>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

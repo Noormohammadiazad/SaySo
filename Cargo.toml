@@ -1,0 +1,46 @@
+[workspace]
+resolver = "3"
+members = ["crates/sayso-core", "crates/sayso-wire", "crates/sayso-ops", "crates/sayso-wasm"]
+# The wasm facade is built for the browser by web/scripts/build-wasm.mjs, not by a plain `cargo test`.
+default-members = ["crates/sayso-core", "crates/sayso-wire", "crates/sayso-ops"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.90"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/Noormohammadiazad/SaySo"
+
+[workspace.dependencies]
+sayso-core = { path = "crates/sayso-core" }
+blake3 = { version = "1.8", default-features = false }
+chacha20poly1305 = { version = "0.11", default-features = false, features = ["alloc"] }
+ed25519-dalek = { version = "3", default-features = false, features = ["alloc", "zeroize"] }
+x-wing = { version = "0.1.1", default-features = false }
+minicbor = { version = "2.3", features = ["alloc", "derive"] }
+zeroize = { version = "1.9", features = ["derive"] }
+base64ct = { version = "1.8", features = ["alloc"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# Release builds are what ships to browsers, so they are tuned for size:
+# whole-program optimisation in one unit, and no unwinding tables.
+# Hashing and encryption stay at full speed below.
+[profile.release]
+opt-level = "s"
+lto = "fat"
+codegen-units = 1
+panic = "abort"
+# Debug info only. wasm-bindgen reads the target_features section to learn
+# which WebAssembly features the module uses, and a full strip removes it;
+# web/scripts/build-wasm.mjs strips the rest with wasm-opt afterwards.
+strip = "debuginfo"
+
+[profile.release.package.blake3]
+opt-level = 3
+
+[profile.release.package.chacha20]
+opt-level = 3
+
+[profile.release.package.poly1305]
+opt-level = 3

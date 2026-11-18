@@ -1,0 +1,17 @@
+[package]
+name = "sayso-core"
+description = "Sayso formats and cryptography: no I/O, no async, no clock."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+blake3.workspace = true
+chacha20poly1305.workspace = true
+ed25519-dalek.workspace = true
+x-wing.workspace = true
+minicbor.workspace = true
+zeroize.workspace = true
+base64ct.workspace = true

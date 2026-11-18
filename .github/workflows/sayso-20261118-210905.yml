@@ -1,0 +1,326 @@
+name: Sayso
+
+# The whole pipeline, in the one workflow this directory holds:
+#
+#   verify   every push: repository policy (npm run verify), then Rust, the
+#            web app and the first-load budget, unless that exact code passed
+#            before (a push from the dashboard changes only data/ and the
+#            workflow's name). Builds the site once and keeps it for deploy.
+#   deploy   after verify on main, or by hand. Copies data/ into the site,
+#            writes owner.json into the page, publishes to Pages, and checks
+#            the live site.
+#   harvest  every four hours, or by hand: files sealed drops from the relays
+#            in the vault branch, and removes expired ones. Holds no key.
+#   selftest by hand: the dashboard's publisher against the real GitHub API.
+#
+# The file is renamed on every push, by npm run rotate:workflow or by the
+# dashboard's own commits, so every run is #1. Refer to it as the workflow in
+# .github/workflows/, never by its file name. Nothing triggers it but a push,
+# the schedule, or a person: the dashboard's data changes reach the page
+# through the push that carries them.
+on:
+  push:
+    branches: [main]
+  schedule:
+    # Every four hours; the relay it reads keeps messages for twelve.
+    - cron: '23 */4 * * *'
+  workflow_dispatch:
+    inputs:
+      task:
+        description: What to run
+        type: choice
+        options: [deploy, harvest, selftest]
+        default: deploy
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      # One commit, one identity, one workflow under a rotated name, no
+      # assistant attribution in messages or files.
+      - name: Repository policy
+        run: npm run verify
+      # What the code is, apart from data/ and the workflow's file name.
+      - id: code
+        run: |
+          listing="$(git ls-tree -r HEAD | grep -vP '\t(data/|\.github/workflows/)' ; git ls-tree -r HEAD -- .github/workflows | cut -f1)"
+          echo "hash=$(printf '%s' "$listing" | sha256sum | cut -c1-32)" >> "$GITHUB_OUTPUT"
+      - id: verified
+        uses: actions/cache/restore@v6
+        with:
+          path: .verified
+          key: verified-${{ steps.code.outputs.hash }}
+          lookup-only: true
+      - if: steps.verified.outputs.cache-hit != 'true'
+        uses: actions/cache@v6
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            ~/.cargo/bin
+            target
+          key: cargo-${{ runner.os }}-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml') }}
+          restore-keys: cargo-${{ runner.os }}-
+      # rust-toolchain.toml selects the toolchain, target and components.
+      - if: steps.verified.outputs.cache-hit != 'true'
+        run: cargo fmt --all --check
+      - if: steps.verified.outputs.cache-hit != 'true'
+        run: cargo clippy --all-targets -- -D warnings
+      - if: steps.verified.outputs.cache-hit != 'true'
+        run: cargo test
+      # The browser runs a TypeScript port of the core; it is held to these.
+      - if: steps.verified.outputs.cache-hit != 'true'
+        name: The TypeScript core's vectors are current
+        run: cargo run -q -p sayso-wire --example vectors | diff - web/src/crypto/vectors.json
+      - if: steps.verified.outputs.cache-hit != 'true'
+        name: Build the harvest tool
+        run: cargo build --release -p sayso-ops
+      # The script the harvest job runs, against a throwaway git remote.
+      - if: steps.verified.outputs.cache-hit != 'true'
+        name: Test the harvest script
+        run: |
+          cargo run --release -p sayso-ops --example fixtures -- "$RUNNER_TEMP/fixtures"
+          ops/test-harvest.sh "$RUNNER_TEMP/fixtures/owner.json" "$RUNNER_TEMP/fixtures/relay.ndjson"
+      - if: steps.verified.outputs.cache-hit != 'true'
+        run: npm ci
+        working-directory: web
+      # Builds the Live Wire module, typechecks and bundles the site.
+      - if: steps.verified.outputs.cache-hit != 'true'
+        run: npm run build
+        working-directory: web
+      - if: steps.verified.outputs.cache-hit != 'true'
+        run: npm test
+        working-directory: web
+      - if: steps.verified.outputs.cache-hit != 'true'
+        name: First-load budget
+        run: node scripts/check-size.mjs dist 50
+        working-directory: web
+      # The site depends only on the code; deploy takes this build, and so
+      # does every later data-only deploy of the same commit.
+      - if: steps.verified.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v6
+        with:
+          path: web/dist
+          key: site-${{ steps.code.outputs.hash }}
+      - if: steps.verified.outputs.cache-hit != 'true'
+        run: mkdir -p .verified && echo ok > .verified/ok
+      - if: steps.verified.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v6
+        with:
+          path: .verified
+          key: verified-${{ steps.code.outputs.hash }}
+
+  deploy:
+    needs: verify
+    if: >-
+      always() && github.ref == 'refs/heads/main' && (
+        (github.event_name == 'push' && needs.verify.result == 'success') ||
+        (github.event_name == 'workflow_dispatch' && inputs.task == 'deploy'))
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    # Every run deploys the current site and the current data, so a newer one
+    # can always take over from an older one.
+    concurrency:
+      group: pages
+      cancel-in-progress: true
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      # A fresh fork has Pages switched off, and a deploy would fail. Say what
+      # to do instead of failing.
+      - id: pages
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh api "repos/${{ github.repository }}/pages" --silent 2>/dev/null; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "::notice title=GitHub Pages is not enabled::Open Settings > Pages, choose GitHub Actions as the source, then run this workflow again."
+          fi
+      - if: steps.pages.outputs.enabled == 'true'
+        uses: actions/checkout@v7
+      - id: code
+        if: steps.pages.outputs.enabled == 'true'
+        run: |
+          listing="$(git ls-tree -r HEAD | grep -vP '\t(data/|\.github/workflows/)' ; git ls-tree -r HEAD -- .github/workflows | cut -f1)"
+          echo "hash=$(printf '%s' "$listing" | sha256sum | cut -c1-32)" >> "$GITHUB_OUTPUT"
+
+      - id: site
+        if: steps.pages.outputs.enabled == 'true'
+        uses: actions/cache/restore@v6
+        with:
+          path: web/dist
+          key: site-${{ steps.code.outputs.hash }}
+      # Only when no build of this code is cached (it expired, for instance).
+      - if: steps.pages.outputs.enabled == 'true' && steps.site.outputs.cache-hit != 'true'
+        uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - if: steps.pages.outputs.enabled == 'true' && steps.site.outputs.cache-hit != 'true'
+        uses: actions/cache@v6
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            ~/.cargo/bin
+            target
+          key: cargo-${{ runner.os }}-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml') }}
+          restore-keys: cargo-${{ runner.os }}-
+      - if: steps.pages.outputs.enabled == 'true' && steps.site.outputs.cache-hit != 'true'
+        run: npm ci && npm run build
+        working-directory: web
+      - if: steps.pages.outputs.enabled == 'true' && steps.site.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v6
+        with:
+          path: web/dist
+          key: site-${{ steps.code.outputs.hash }}
+
+      - name: Add data/ and the site configuration
+        if: steps.pages.outputs.enabled == 'true'
+        env:
+          REPO: ${{ github.repository }}
+          EVENT: ${{ github.event_name }}
+          BUILT: ${{ steps.site.outputs.cache-hit != 'true' }}
+        run: |
+          set -euo pipefail
+          site=web/dist
+          # Tells the page which repository it belongs to; needed on a custom
+          # domain, where the address does not say.
+          printf '{"repo":"%s"}\n' "$REPO" > "$site/sayso.config.json"
+          mkdir -p "$site/data"
+          data=null
+          # data/ is in this commit: the dashboard writes it to main.
+          if [ -d data ]; then
+            cp -R data/. "$site/data/"
+            data="\"$(git rev-parse HEAD:data)\""
+          else
+            echo "::notice title=No inbox yet::main has no data/ yet. Open the dashboard at #/owner to create the inbox."
+          fi
+          # What this deploy contains, for checking that it went out.
+          printf '{"site":"%s","data":%s,"event":"%s","built":%s,"at":%s}\n' \
+            "$GITHUB_SHA" "$data" "$EVENT" "$BUILT" "$(date +%s)" > "$site/data/deploy.json"
+          cat "$site/data/deploy.json"
+          # The configuration and owner.json written into the page itself, so
+          # a visitor's browser needs no further request to show the owner.
+          node web/scripts/inline-data.mjs "$site" "$REPO"
+
+      - if: steps.pages.outputs.enabled == 'true'
+        uses: actions/upload-pages-artifact@v5
+        with:
+          path: web/dist
+      - id: deployment
+        if: steps.pages.outputs.enabled == 'true'
+        uses: actions/deploy-pages@v5
+
+      # Fetch what a visitor's browser fetches, from the live site, and check
+      # each piece is what it should be.
+      - name: Check the live site
+        if: steps.pages.outputs.enabled == 'true'
+        env:
+          SITE: ${{ steps.deployment.outputs.page_url }}
+          SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          site="${SITE%/}"
+          fetch() { curl --silent --show-error --fail --location --max-time 60 --retry 5 --retry-delay 10 --retry-all-errors "$@"; }
+          # The CDN can take a moment to serve the new deploy.
+          for attempt in $(seq 1 12); do
+            if fetch "$site/data/deploy.json" | grep -q "\"site\":\"$SHA\""; then break; fi
+            [ "$attempt" = 12 ] && { echo "::error::The live site does not serve this deploy"; exit 1; }
+            sleep 10
+          done
+          page="$(fetch "$site/")"
+          script="$(printf '%s' "$page" | grep -oE 'assets/index-[A-Za-z0-9_-]+\.js' | head -1)"
+          [ -n "$script" ] || { echo "::error::The page names no script"; exit 1; }
+          fetch "$site/$script" > script.js
+          # The page carries its configuration, and owner.json once there is one.
+          printf '%s' "$page" | grep -q '<script id="sayso-data" type="application/json">{"config":{"repo":"${{ github.repository }}"' \
+            || { echo "::error::The page does not carry its configuration"; exit 1; }
+          inlined="no owner.json yet"
+          # (No retries here: a 404 is a normal answer before the inbox exists.)
+          if [ "$(curl --silent --output /dev/null --write-out '%{http_code}' --max-time 60 "$site/data/owner.json")" = 200 ]; then
+            printf '%s' "$page" | grep -q '"owner":"' || { echo "::error::owner.json exists but is not in the page"; exit 1; }
+            inlined="owner.json inlined"
+          fi
+          # Live Wire, which the page loads only for live transfers: gzip parts
+          # listed in its own chunk, with the module's SHA-256 beside them.
+          # (Minified, the key loses its quotes: sha256:"…".)
+          wire="$(grep -oE 'wire-[A-Za-z0-9_-]+\.js' script.js | head -1)"
+          [ -n "$wire" ] || { echo "::error::The script names no Live Wire chunk"; exit 1; }
+          fetch "$site/assets/$wire" > wire.js
+          sha="$(grep -oE '"?sha256"?:"[0-9a-f]{64}"' wire.js | head -1 | grep -oE '[0-9a-f]{64}')"
+          parts="$(grep -oE 'sayso-[0-9a-f]{16,}-[0-9]+\.bin' wire.js | sort -u | sort -t- -k3 -n)"
+          [ -n "$sha" ] && [ -n "$parts" ] || { echo "::error::The script lists no WebAssembly parts"; exit 1; }
+          : > module.gz
+          for part in $parts; do fetch "$site/assets/wasm/$part" >> module.gz; done
+          gunzip -c module.gz > module.wasm
+          [ "$(head -c 4 module.wasm | od -An -tx1 | tr -d ' ')" = "0061736d" ] || { echo "::error::The parts do not make WebAssembly"; exit 1; }
+          [ "$(sha256sum module.wasm | cut -d' ' -f1)" = "$sha" ] || { echo "::error::The parts do not match the module's checksum"; exit 1; }
+          fetch "$site/sayso.config.json" | grep -q "\"repo\":\"${{ github.repository }}\"" || { echo "::error::sayso.config.json is wrong"; exit 1; }
+          echo "::notice title=Live site checked::$site serves this deploy: page ($inlined), $script, $wire with $(printf '%s\n' $parts | wc -l | tr -d ' ') WebAssembly parts ($(wc -c < module.gz | tr -d ' ') bytes, checksum matches), sayso.config.json."
+
+  harvest:
+    if: github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.task == 'harvest')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    concurrency:
+      group: sayso-harvest
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/cache@v6
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ops-${{ runner.os }}-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml') }}
+          restore-keys: ops-${{ runner.os }}-
+      - name: Build the harvest tool
+        run: cargo build --release -p sayso-ops
+      - name: Harvest and expire
+        run: ops/harvest.sh
+
+  # Runs the dashboard's GitHub publisher against the real GitHub API, on a
+  # scratch branch that is deleted afterwards: create, write, read, replace,
+  # compact history, write again, ask for a redeploy. Only by hand: that
+  # redeploy request starts a deploy run of its own.
+  selftest:
+    if: github.event_name == 'workflow_dispatch' && inputs.task == 'selftest'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: npm ci
+        working-directory: web
+      - name: Publisher against the GitHub API
+        run: npx vitest run src/publish/github.live.test.ts
+        working-directory: web
+        env:
+          SAYSO_LIVE_GITHUB: '1'
+          GITHUB_TOKEN: ${{ github.token }}
+      - run: echo "::notice title=Publisher self-test::Created, wrote, read, compacted and redeployed against the GitHub API."

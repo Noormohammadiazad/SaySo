@@ -1,0 +1,143 @@
+/* The dashboard's layout: loaded with the dashboard. Tokens are in styles.css. */
+
+/* ---- the dashboard --------------------------------------------------------------- */
+
+.app.owner {
+  display: grid;
+  grid-template-columns: minmax(280px, 340px) 1fr;
+  grid-template-rows: 100dvh;
+}
+.sidebar {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background: var(--surface);
+  border-inline-end: 1px solid var(--line);
+}
+.sidebar > .banner {
+  margin: 0 0.8rem 0.6rem;
+}
+.status-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  padding: 0.6rem 1rem;
+}
+.threads {
+  list-style: none;
+  margin: 0;
+  padding: 0.2rem 0.5rem 1rem;
+  overflow-y: auto;
+  flex: 1;
+}
+.threads .empty {
+  color: var(--muted);
+  padding: 2rem 1rem;
+  text-align: center;
+  font-size: 0.9rem;
+}
+.thread-row {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  padding: 0.6rem;
+  min-height: 0;
+  border-radius: var(--radius-s);
+  background: transparent;
+  color: var(--text);
+  font-weight: 400;
+  text-align: start;
+}
+.thread-row:hover {
+  background: var(--surface-2);
+}
+.thread-row.selected {
+  background: var(--accent-soft);
+}
+.thread-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+}
+.thread-top,
+.thread-bottom {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+.thread-name {
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.thread-top .icon {
+  color: var(--ok);
+  flex: none;
+}
+.thread-top time {
+  margin-inline-start: auto;
+  font-size: 0.75rem;
+  flex: none;
+}
+.preview {
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 0.86rem;
+}
+.count {
+  min-width: 1.3rem;
+  height: 1.3rem;
+  padding: 0 0.35rem;
+  border-radius: 999px;
+  background: var(--accent);
+  color: var(--accent-text);
+  font-size: 0.72rem;
+  font-weight: 700;
+  display: grid;
+  place-items: center;
+}
+.online {
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 50%;
+  background: var(--ok);
+  flex: none;
+}
+.pane {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+.pane .back {
+  display: none;
+}
+.empty-pane {
+  flex: 1;
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: 0.6rem;
+  color: var(--muted);
+}
+
+@media (max-width: 760px) {
+  .app.owner {
+    grid-template-columns: 1fr;
+  }
+  .app.owner.has-thread .sidebar,
+  .app.owner:not(.has-thread) .pane {
+    display: none;
+  }
+  .pane .back {
+    display: inline-flex;
+  }
+}
+

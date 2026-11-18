@@ -1,0 +1,5 @@
+[toolchain]
+channel = "stable"
+targets = ["wasm32-unknown-unknown"]
+# llvm-tools provides the archiver the WebAssembly build needs on macOS.
+components = ["clippy", "rustfmt", "llvm-tools"]

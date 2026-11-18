@@ -1,0 +1,19 @@
+[package]
+name = "sayso-wire"
+description = "The Sayso wire protocol over iroh: builds natively and for wasm32."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+sayso-core.workspace = true
+iroh = { version = "1.4", default-features = false, features = ["tls-ring"] }
+n0-future = "0.3"
+async-channel = "2.3"
+tokio = { version = "1.43", default-features = false, features = ["sync"] }
+
+[dev-dependencies]
+serde_json.workspace = true
+tokio = { version = "1.43", features = ["macros", "rt-multi-thread", "time"] }

@@ -1,0 +1,11 @@
+{
+  "name": "sayso-repository",
+  "private": true,
+  "description": "Repository chores. The app is in web/, the Rust crates in crates/.",
+  "license": "MIT OR Apache-2.0",
+  "scripts": {
+    "rotate:workflow": "node scripts/rotate-workflow.mjs",
+    "sync:data": "node scripts/sync-data.mjs",
+    "verify": "node scripts/verify.mjs"
+  }
+}

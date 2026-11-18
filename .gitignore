@@ -1,0 +1,22 @@
+# Build output
+target/
+web/dist/
+web/src/wire/pkg/
+ops/pkg/
+.verified/
+
+# Dependencies
+node_modules/
+
+# Local stand-ins for the data branch, the vault and the buffer (vite dev)
+.dev-data/
+.dev-vault/
+.dev-buffer/
+
+# Editors, tools, OS
+.DS_Store
+.idea/
+.vscode/
+*.log
+.env
+.env.*

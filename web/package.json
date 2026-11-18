@@ -1,0 +1,34 @@
+{
+  "name": "sayso-web",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "wasm": "node scripts/build-wasm.mjs",
+    "wasm:dev": "node scripts/build-wasm.mjs --dev",
+    "dev": "vite",
+    "typecheck": "tsc --noEmit",
+    "build": "node scripts/build-wasm.mjs && tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "test": "vitest run",
+    "preview:local": "SAYSO_LOCAL=1 vite preview"
+  },
+  "dependencies": {
+    "@noble/ciphers": "^2.4.0",
+    "@noble/curves": "^2.4.0",
+    "@noble/hashes": "^2.4.0",
+    "@noble/post-quantum": "^0.7.1",
+    "@waku/sdk": "^0.0.36",
+    "preact": "^10.26.0"
+  },
+  "devDependencies": {
+    "@preact/preset-vite": "^2.10.0",
+    "@types/node": "^26.6.6",
+    "binaryen": "^132.0.0",
+    "terser": "^5.51.2",
+    "typescript": "^5.8.0",
+    "vite": "^7.0.0",
+    "vitest": "^5.1.0"
+  },
+  "license": "MIT OR Apache-2.0"
+}
